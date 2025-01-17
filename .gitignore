@@ -1,0 +1,6 @@
+.cproject
+.project
+.vscode
+build
+managed_components
+dependencies.lock

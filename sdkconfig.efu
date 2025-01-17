@@ -1,0 +1,7 @@
+
+
+#do not modify eFuse permanently
+CONFIG_EFUSE_VIRTUAL=y
+CONFIG_EFUSE_VIRTUAL_KEEP_IN_FLASH=n
+#on if virtual
+CONFIG_BOOT_ROM_LOG_ALWAYS_ON=y

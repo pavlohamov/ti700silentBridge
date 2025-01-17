@@ -1,0 +1,13 @@
+## IDF Component Manager Manifest File
+dependencies:
+  espressif/esp_tinyusb: ^2.0.1
+  idf: ^6.0
+  lvgl/lvgl: ^9.4.0
+  esp_lcd_sh1107: ^1.1.0
+  joltwallet/littlefs: ^1.20.1
+  cmd_system:
+    path: ${IDF_PATH}/examples/system/console/advanced/components/cmd_system
+  cmd_nvs:
+    path: ${IDF_PATH}/examples/system/console/advanced/components/cmd_nvs
+  cmd_wifi:
+    path: ${IDF_PATH}/examples/system/console/advanced/components/cmd_wifi

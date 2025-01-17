@@ -1,0 +1,11 @@
+# Name,   Type, SubType, Offset,  Size, Flags
+# Note: if you have increased the bootloader size, make sure to update the offsets to avoid overlap
+# nvs must be first one
+nvs,      data, nvs,     ,        128K,
+nvs_key,  data, nvs_keys,,        4K,  encrypted
+phy_init, data, phy,     ,        4K,  encrypted
+otadata,  data, ota,     ,        8K,  encrypted
+coredump, data, coredump,,        64K, encrypted
+storage,  data, littlefs,,        1M,
+ota_0,    app,  ota_0,   ,        2M,
+efuse_em, data, efuse,   ,        8K,
