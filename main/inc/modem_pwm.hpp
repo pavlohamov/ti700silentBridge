@@ -15,9 +15,13 @@ typedef struct QueueDefinition *QueueHandle_t;
 typedef QueueHandle_t SemaphoreHandle_t;
 typedef struct gptimer_t *gptimer_handle_t;
 
-namespace V11 {
+typedef struct xSTATIC_TCB StaticTask_t;
+typedef struct tskTaskControlBlock* TaskHandle_t;
 
-typedef struct SendArg *SendArg_t;
+typedef struct rmt_channel_t *rmt_channel_handle_t;
+typedef struct rmt_encoder_t *rmt_encoder_handle_t;
+
+namespace V11 {
 
 // negative - errno
 using ReceiveCb = std::function<void(int code)>;
@@ -30,12 +34,25 @@ public:
 
 	int write(const void *data, size_t size);
 
+	int stoptone();
+
 private:
 	const ReceiveCb _onRx;
 	SemaphoreHandle_t _lock;
 	SemaphoreHandle_t _rxed;
-	gptimer_handle_t _timer;
-	SendArg_t _send;
+	rmt_channel_handle_t _rmtx;
+	rmt_channel_handle_t _rmrx;
+
+	size_t _tx_pos;
+	rmt_encoder_handle_t _data_encoder;
+	rmt_encoder_handle_t _idle_encoder;
+	QueueHandle_t _rxq;
+
+	void *_stack;
+	StaticTask_t *_thread;
+	TaskHandle_t _tid;
+
+	static void routine(void *arg);
 };
 
 };

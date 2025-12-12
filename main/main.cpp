@@ -30,6 +30,7 @@
 
 
 #include "modem_pwm.hpp"
+#include "bq24296.hpp"
 
 #include "glue.h"
 
@@ -272,10 +273,9 @@ static int i2s_test() {
 	return 0;
 }
 
-static int pwm_test() {
+static int pwm_test(V11::Modem *mod) {
 
 	static const char text[] =
-			"\n\r"
 			"Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, "
 			"sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est "
 			"Lorem ipsum dolor sit amet. Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et "
@@ -283,94 +283,114 @@ static int pwm_test() {
 			"takimata sanctus est Lorem ipsum dolor sit amet. Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod "
 			"tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. "
 			"Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet. "
-			"\n\r"
+
 			"Duis autem vel eum iriure dolor in hendrerit in vulputate velit esse molestie consequat, vel illum dolore eu feugiat nulla facilisis "
 			"at vero eros et accumsan et iusto odio dignissim qui blandit praesent luptatum zzril delenit augue duis dolore te feugait nulla facilisi. "
-			"Lorem ipsum dolor sit amet, consectetuer adipiscing elit, sed diam nonummy nibh euismod tincidunt ut laoreet dolore magna aliquam erat volutpat.  "
-			"\n\r"
-			"Ut wisi enim ad minim veniam, quis nostrud exerci tation ullamcorper suscipit lobortis nisl ut aliquip ex ea commodo consequat. "
-			"Duis autem vel eum iriure dolor in hendrerit in vulputate velit esse molestie consequat, vel illum dolore eu feugiat nulla facilisis at vero eros et "
-			"accumsan et iusto odio dignissim qui blandit praesent luptatum zzril delenit augue duis dolore te feugait nulla facilisi. "
-			"\n\r"
-			"Nam liber tempor cum soluta nobis eleifend option congue nihil imperdiet doming id quod mazim placerat facer possim assum. "
 			"Lorem ipsum dolor sit amet, consectetuer adipiscing elit, sed diam nonummy nibh euismod tincidunt ut laoreet dolore magna aliquam erat volutpat. "
-			"Ut wisi enim ad minim veniam, quis nostrud exerci tation ullamcorper suscipit lobortis nisl ut aliquip ex ea commodo consequat."
-			"\n\r"
-			"Duis autem vel eum iriure dolor in hendrerit in vulputate velit esse molestie consequat, vel illum dolore eu feugiat nulla facilisis."
-			"\n\r"
-			"At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet. "
-			"Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, "
-			"sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor "
-			"sit amet. Lorem ipsum dolor sit amet, consetetur sadipscing elitr, At accusam aliquyam diam diam dolore dolores duo eirmod eos erat, et "
-			"nonumy sed tempor et et invidunt justo labore Stet clita ea et gubergren, kasd magna no rebum. sanctus sea sed takimata ut vero voluptua. "
-			"est Lorem ipsum dolor sit amet. Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam"
-			"\n\r";
+			;
 
-	V11::Modem *mod = new V11::Modem(BOARD_CFG_GPIO_MODEM_RX, BOARD_CFG_GPIO_MODEM_TX, nullptr);
-
+    vTaskDelay(pdMS_TO_TICKS(500));
     vTaskDelay(pdMS_TO_TICKS(3000));
 
-    gpio_set_level(BOARD_CFG_GPIO_BOOST_ENA, 1);
+//    gpio_set_level(BOARD_CFG_GPIO_BOOST_ENA, 1);
 
-    ESP_LOGI(TAG, "sending");
-	for (int i = 0; i < sizeof(text); ++i) {
+//	mod->write("\n\r", 2);
+//    uint32_t val = 0x08040201;
+//    mod->write(&val, !!sizeof(val));
 
-		mod->write(text + i, 1);
-	    ESP_LOGI(TAG, "%6d/%d %2d%%", i, sizeof(text), i * 100 / sizeof(text));
+//	mod->write(text, 10);
+//	return 0;
 
-	    const int mode = (i / 30) & 1;
-//	    gpio_set_level(BOARD_CFG_GPIO_BOOST_ENA, mode);
-	    gpio_set_level(BOARD_CFG_GPIO_LED_1, mode);
-	}
+    for (int i = 0x40; i; i >>= 1) {
+    	i = 'a';
+    	mod->write(&i, 1);
+        vTaskDelay(pdMS_TO_TICKS(90));
+    	return 0;
+    }
+	return 0;
+    int val = 0xAA;
+	mod->write(&val, 1);
+    vTaskDelay(pdMS_TO_TICKS(90));
 
-    ESP_LOGI(TAG, "dine");
+    val = 0x55;
+	mod->write(&val, 1);
+    vTaskDelay(pdMS_TO_TICKS(90));
+
+
+	mod->write(text, 10);
+//    for (int i = 0; i < 10; i) {
+//    	mod->write(&i, 1);
+//        vTaskDelay(pdMS_TO_TICKS(90));
+//    }
+
+return 0;
+	int sent = 0;
+    while (1) {
+		ESP_LOGI(TAG, "sending");
+		for (int i = 0; i < sizeof(text); ++i) {
+
+			mod->write(text + i, 1);
+			if (++sent >= 80) {
+				mod->write("\n\r", 2);
+				sent = 0;
+			}
+//			ESP_LOGI(TAG, "%6d/%d %2d%%", i, sizeof(text), i * 100 / sizeof(text));
+
+			const int mode = (i / 30) & 1;
+	//	    gpio_set_level(BOARD_CFG_GPIO_BOOST_ENA, mode);
+			gpio_set_level(BOARD_CFG_GPIO_LED_1, mode);
+		}
+
+		ESP_LOGI(TAG, "done");
+    }
 
 	return 0;
 }
 
+int LogUtil_init();
+
 extern "C" void app_main(void) {
-    i2c_master_bus_handle_t i2c_bus = NULL;
 
     gpio_init();
-    pwm_test();
+    LogUtil_init();
+
+	static const  i2c_master_bus_config_t i2c_bus_config = {
+		.i2c_port = -1,
+        .sda_io_num = BOARD_CFG_GPIO_I2C_SDA,
+        .scl_io_num = BOARD_CFG_GPIO_I2C_SCL,
+        .clk_source = I2C_CLK_SRC_DEFAULT,
+        .glitch_ignore_cnt = 7,
+		.intr_priority = 0,
+		.trans_queue_depth = 0,
+		.flags = {
+			.enable_internal_pullup = 1,
+			.allow_pd = 0,
+		},
+    };
+
+    static const i2c_device_config_t i2c_bq_conf = {
+		.dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address = 0x6b,
+        .scl_speed_hz = 400 * 1000,
+		.scl_wait_us = 0,
+		.flags = {
+			.disable_ack_check = 0,
+		}
+    };
+
+    i2c_master_bus_handle_t bus_handle;
+    ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_bus_config, &bus_handle));
+
+    i2c_master_dev_handle_t i2c_bq;
+    ESP_ERROR_CHECK(i2c_master_bus_add_device(bus_handle, &i2c_bq_conf, &i2c_bq));
+
+    TI::BQ24296 *bq = new TI::BQ24296(i2c_bq);
+    bq->dump();
+
+
+	V11::Modem *mod = new V11::Modem(BOARD_CFG_GPIO_MODEM_RX, BOARD_CFG_GPIO_MODEM_TX, nullptr);
+    pwm_test(mod);
+    mod->stoptone();
+//    delete mod;
 //    i2s_test();
-    return;
-
-    i2c_master_bus_handle_t i2c_lcd = NULL;
-    oled_lcd_init(&i2c_lcd);
-
-    ESP_LOGI(TAG, "USB initialization");
-    esp_console_repl_t *repl = NULL;
-    esp_console_repl_config_t repl_config = ESP_CONSOLE_REPL_CONFIG_DEFAULT();
-    repl_config.prompt = CONFIG_IDF_TARGET ":~$";
-    repl_config.max_cmdline_length = 1024;
-
-    esp_console_register_help_command();
-    register_system_common();
-    register_nvs();
-#if (CONFIG_ESP_WIFI_ENABLED || CONFIG_ESP_HOST_WIFI_ENABLED)
-    register_wifi();
-#endif
-
-
-#if defined(CONFIG_ESP_CONSOLE_UART_DEFAULT) || defined(CONFIG_ESP_CONSOLE_UART_CUSTOM)
-    esp_console_dev_uart_config_t hw_config = ESP_CONSOLE_DEV_UART_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_console_new_repl_uart(&hw_config, &repl_config, &repl));
-// todo: some issue with simultanious relp + USB
-    ESP_LOGI(TAG, "USB initialization");
-    //usb_can_init();
-#elif defined(CONFIG_ESP_CONSOLE_USB_CDC)
-    esp_console_dev_usb_cdc_config_t hw_config = ESP_CONSOLE_DEV_CDC_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_console_new_repl_usb_cdc(&hw_config, &repl_config, &repl));
-#elif defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG)
-    esp_console_dev_usb_serial_jtag_config_t hw_config = ESP_CONSOLE_DEV_USB_SERIAL_JTAG_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_console_new_repl_usb_serial_jtag(&hw_config, &repl_config, &repl));
-#else
-#error Unsupported console type
-#endif
-
-    ESP_ERROR_CHECK(esp_console_start_repl(repl));
-
-    vTaskDelay(pdMS_TO_TICKS(1000));
-	ESP_LOGI(TAG, "Start");
 }
