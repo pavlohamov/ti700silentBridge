@@ -289,23 +289,25 @@ static int pwm_test(V11::Modem *mod) {
 			"Lorem ipsum dolor sit amet, consectetuer adipiscing elit, sed diam nonummy nibh euismod tincidunt ut laoreet dolore magna aliquam erat volutpat. "
 			;
 
+	mod->tone(1);
+
     vTaskDelay(pdMS_TO_TICKS(500));
-    vTaskDelay(pdMS_TO_TICKS(3000));
+	int log = 30;
+	while (!mod->carrier() && --log) {
+	    vTaskDelay(pdMS_TO_TICKS(100));
+	}
+	if (!mod->carrier())
+		ESP_LOGE(TAG, "No carrier");
+	else
+		ESP_LOGI(TAG, "Carrier %d Hz", mod->carrier());
 
 //    gpio_set_level(BOARD_CFG_GPIO_BOOST_ENA, 1);
 
 //	mod->write("\n\r", 2);
-//    uint32_t val = 0x08040201;
-//    mod->write(&val, !!sizeof(val));
-
-//	mod->write(text, 10);
-//	return 0;
-
-    for (int i = 0x40; i; i >>= 1) {
-    	i = 'a';
-    	mod->write(&i, 1);
+    for (int i = 0; i < 7; i++) {
+//    	mod->write(&i, 1);
+    	mod->write(text + i, 1);
         vTaskDelay(pdMS_TO_TICKS(90));
-    	return 0;
     }
 	return 0;
     int val = 0xAA;
@@ -390,7 +392,7 @@ extern "C" void app_main(void) {
 
 	V11::Modem *mod = new V11::Modem(BOARD_CFG_GPIO_MODEM_RX, BOARD_CFG_GPIO_MODEM_TX, nullptr);
     pwm_test(mod);
-    mod->stoptone();
+//    mod->tone(0);
 //    delete mod;
 //    i2s_test();
 }

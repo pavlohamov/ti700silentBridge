@@ -26,26 +26,27 @@ namespace V11 {
 // negative - errno
 using ReceiveCb = std::function<void(int code)>;
 
+class BellWriter;
 
 class Modem {
 public:
 	Modem(int gpio_rx, int gpio_tx, ReceiveCb onRx);
 	virtual ~Modem();
 
+	uint32_t carrier() const { return _carrier; }
 	int write(const void *data, size_t size);
 
-	int stoptone();
+	int tone(bool play);
 
 private:
+	uint32_t _carrier;
+	BellWriter *_writer;
+
 	const ReceiveCb _onRx;
 	SemaphoreHandle_t _lock;
 	SemaphoreHandle_t _rxed;
-	rmt_channel_handle_t _rmtx;
-	rmt_channel_handle_t _rmrx;
 
-	size_t _tx_pos;
-	rmt_encoder_handle_t _data_encoder;
-	rmt_encoder_handle_t _idle_encoder;
+	rmt_channel_handle_t _rmrx;
 	QueueHandle_t _rxq;
 
 	void *_stack;
