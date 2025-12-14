@@ -28,6 +28,7 @@
 #include "driver/uart.h"
 #include "driver/gpio.h"
 
+#include <string>
 
 #include "modem_pwm.hpp"
 #include "bq24296.hpp"
@@ -301,23 +302,15 @@ static int pwm_test(V11::Modem *mod) {
 	else
 		ESP_LOGI(TAG, "Carrier %d Hz", mod->carrier());
 
-//    gpio_set_level(BOARD_CFG_GPIO_BOOST_ENA, 1);
-
 //	mod->write("\n\r", 2);
-    for (int i = 0; i < 7; i++) {
-//    	mod->write(&i, 1);
-    	mod->write(text + i, 1);
+
+	const uint8_t buff[] = { 0xAA,  };
+
+    for (int i = 0; i < sizeof(buff); i++) {
+    	mod->write(buff + i, 1);
         vTaskDelay(pdMS_TO_TICKS(90));
     }
 	return 0;
-    int val = 0xAA;
-	mod->write(&val, 1);
-    vTaskDelay(pdMS_TO_TICKS(90));
-
-    val = 0x55;
-	mod->write(&val, 1);
-    vTaskDelay(pdMS_TO_TICKS(90));
-
 
 	mod->write(text, 10);
 //    for (int i = 0; i < 10; i) {
@@ -350,6 +343,25 @@ return 0;
 }
 
 int LogUtil_init();
+
+static void onReception(V11::Modem& mod, int code) {
+
+	ESP_LOGI(TAG, "rx 0x%02X '%c'", code, code);
+
+	mod.write(&code, 1);
+//
+//	static std::string str;
+//	if (code == '\n' || code == '\r') {
+//		if (!str.empty()) {
+//			str.append("\n\r");
+//			mod.write(str.c_str(), str.length());
+//			str.clear();
+//		}
+//		return;
+//	}
+//	if (isprint(code))
+//		str += char(code);
+}
 
 extern "C" void app_main(void) {
 
@@ -390,7 +402,7 @@ extern "C" void app_main(void) {
     bq->dump();
 
 
-	V11::Modem *mod = new V11::Modem(BOARD_CFG_GPIO_MODEM_RX, BOARD_CFG_GPIO_MODEM_TX, nullptr);
+	V11::Modem *mod = new V11::Modem(BOARD_CFG_GPIO_MODEM_RX, BOARD_CFG_GPIO_MODEM_TX, onReception);
     pwm_test(mod);
 //    mod->tone(0);
 //    delete mod;

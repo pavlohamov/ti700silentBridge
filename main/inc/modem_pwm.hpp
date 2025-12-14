@@ -23,8 +23,10 @@ typedef struct rmt_encoder_t *rmt_encoder_handle_t;
 
 namespace V11 {
 
+class Modem;
+
 // negative - errno
-using ReceiveCb = std::function<void(int code)>;
+using ReceiveCb = std::function<void(Modem& mod, int code)>;
 
 class BellWriter;
 
@@ -52,6 +54,8 @@ private:
 	void *_stack;
 	StaticTask_t *_thread;
 	TaskHandle_t _tid;
+
+	void onCarrierChange(uint32_t cur);
 
 	static void routine(void *arg);
 };

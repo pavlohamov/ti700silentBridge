@@ -19,6 +19,7 @@
 #include "driver/ledc.h"
 #include "hal/ledc_hal.h"
 
+#include "esp_timer.h"
 
 #include "esp_log.h"
 static const char *TAG = "modem";
@@ -28,11 +29,7 @@ static const char *TAG = "modem";
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(*x))
 #endif
 
-
-
 namespace V11 {
-
-
 
 #ifdef CONFIG_SPIRAM
 #define STACK_FLAGS (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
@@ -41,12 +38,15 @@ namespace V11 {
 #endif
 
 #define RMT_COUNT 128
+#define RMT_RX_COUNT 16
 
-#define MHZ                             (1000000)
-#define RMT_RES                             (MHZ * 10)
+#define MHZ      (1000000)
+#define RMT_RES (10 * MHZ)
 
 #define BELL_BAUDRATE 300
-#define BIT_TIME_US (MHZ / BELL_BAUDRATE)
+#define BIT_TIME_RMTICK (RMT_RES / BELL_BAUDRATE)
+
+#define BIT_TIME_MAX (RMT_RES * 15 / BELL_BAUDRATE / 10)
 
 
 #define FSK_LO_L 1070
@@ -184,7 +184,6 @@ IRAM_ATTR static size_t encoder_callback(const void *data, size_t data_size, siz
     }
     const uint8_t byte = data_bytes[data_pos];
     ESP_LOGI(TAG, "TX: '%c' %2X@%zu sz %zu/%zu free %zu", byte, byte, data_pos, symbols_written, data_size, symbols_free);
-
 
 	saved_t last = {
 		.bit = 0,
@@ -358,7 +357,7 @@ public:
 		};
 
 		static const gptimer_alarm_config_t alarm_cfg = {
-			.alarm_count = BIT_TIME_US * (timer_cfg.resolution_hz / MHZ),
+			.alarm_count = timer_cfg.resolution_hz / BELL_BAUDRATE,
 			.reload_count = 0,
 			.flags = {
 				.auto_reload_on_alarm = true,
@@ -423,6 +422,7 @@ public:
 		for (size_t i = 0; i < size; ++i) {
 			sp->pos = 0;
 			sp->val = ptr[i];
+			ESP_LOGD(TAG, "TX: %zu/%zu %02X '%c'", i, size, sp->val, sp->val);
 			if (!i) {
 				xSemaphoreTake(sp->done, 0);
 				gptimer_start(_tim);
@@ -458,6 +458,22 @@ static bool IRAM_ATTR data_rx(rmt_channel_handle_t channel, const rmt_rx_done_ev
     return high_task_wakeup;
 }
 
+
+void Modem::onCarrierChange(uint32_t cur) {
+
+	if (!_carrier == !cur) {
+		_carrier = cur;
+		return;
+	}
+
+	if (cur)
+		ESP_LOGI(TAG, "carrier det %d Hz", cur);
+	else
+		ESP_LOGI(TAG, "rxtout");
+
+	_carrier = cur;
+}
+
 void Modem::routine(void *arg) {
 	Modem *thiz = (Modem*)arg;
 
@@ -470,111 +486,119 @@ void Modem::routine(void *arg) {
 
 	rmt_receive_config_t receive_config = {
 		.signal_range_min_ns = 3187,
-		.signal_range_max_ns = 2000000ULL,
+		.signal_range_max_ns = 819175ULL,
 		.flags = {
 			.en_partial_rx = 1,
 		},
 	};
 
-	rmt_symbol_word_t raw_symbols[RMT_COUNT];
+	rmt_symbol_word_t raw_symbols[RMT_RX_COUNT];
 	rmt_rx_done_event_data_t rx_data;
 
 	ESP_ERROR_CHECK(rmt_enable(thiz->_rmrx));
 	ESP_ERROR_CHECK(rmt_receive(thiz->_rmrx, raw_symbols, sizeof(raw_symbols), &receive_config));
 
 	thiz->_carrier = 0;
-	int8_t rx[RMT_COUNT * 2];
-	int inbuf = 0;
-	while (1) {
-		if (!xQueueReceive(thiz->_rxq, &rx_data, pdMS_TO_TICKS(100))) {
-			inbuf = 0;
-			if (thiz->_carrier)
-				ESP_LOGI(TAG, "rxtout");
-			thiz->_carrier = 0;
-			continue;
-		}
-		uint32_t avg = 0;
-		bool allones = true;
-		int rxed = 0;
-		int8_t bits[RMT_COUNT];
-		for (size_t i = 0; i < rx_data.num_symbols; ++i) {
-			rmt_symbol_word_t *sy = rx_data.received_symbols + i;
-			const uint16_t f = RMT_RES / (sy->duration0 + sy->duration1 + 1);
-			avg += f;
-			const uint16_t *freq = s_freq[f > FSK_CENTRAL];
-			const int away[] = { abs(f - freq[0]), abs(f - freq[1]) };
-			const int bit = away[1] < away[0];
-			if (inbuf || rxed) {
-				bits[rxed++] = bit;
-			} else if (!bit) {
-				bits[rxed++] = bit;
-				allones = false;
-			}
-//			ESP_LOGI(TAG, "%3zu {%d:%5d},{%d:%5d}", i, sy->level0, sy->duration0, sy->level1, sy->duration1);
-//			ESP_LOGI(TAG, "%3zu %d   %d %d %d", i, f, away[0], away[1], bit);
-		}
-		if (!thiz->_carrier && rx_data.num_symbols > 30) {
-			thiz->_carrier = avg / rx_data.num_symbols;
-			ESP_LOGI(TAG, "got carrier %d %d", thiz->_carrier, rx_data.num_symbols);
-		}
-		if (allones && !inbuf) {
-			ESP_LOGV(TAG, "RX: ones %zu", rx_data.num_symbols);
-			inbuf = 0;
-		} else {
-			for (size_t i = 0; i < rxed; ++i) {
-				if (inbuf > ARRAY_SIZE(rx)) {
-					ESP_LOGE(TAG, "overrun %zu/%d", i, rxed);
-					inbuf = ARRAY_SIZE(rx);
-					break;
-				}
-				rx[inbuf++] = bits[i];
-			}
-//			ESP_LOGI(TAG, "RX: %zu %d inbuf %d", rx_data.num_symbols, avg / rx_data.num_symbols, inbuf);
-//			if (inbuf >= 61)
-			{
-				char *text = (char*)malloc(inbuf + 16);
-				int occ = 0;
-				int accu = 0;
-				int pos = 0;
-				// start + 7bit + parity + stop
-				for (int i = 0; i < inbuf; ++i) {
-					const int next = i / 4;
-//					ESP_LOGW(TAG, "n %d p %d a %d", next, pos, accu);
-					if (next != pos) {
-						bits[pos++] = accu >= (inbuf / 10 / 2);
-						accu = 0;
-					}
-					accu += rx[i];
-					occ += snprintf(text + occ, inbuf + 16 - occ, "%d", rx[i]);
-				}
-				ESP_LOGI(TAG, "RX: %zu %d last %d %d %s", rx_data.num_symbols, avg / rx_data.num_symbols, rx_data.flags.is_last, inbuf, text);
+//	esp_log_level_set(TAG, ESP_LOG_VERBOSE);
 
-				if (pos >= 10 && !bits[0] && bits[9]) {
-					occ = 0;
-					text[0] = '\0';
-					int received = 0;
-					for (int i = 0; i < pos; ++i) {
-						if (i)
-							received |= bits[i] ? (0x1 << (i-1)) : 0;
-						occ += snprintf(text + occ, inbuf + 16 - occ, "%d", bits[i]);
-					}
-					received &= 0x7f;
-					ESP_LOGI(TAG, "RX: %d %s %x '%c'", pos, text, received, received);
-					inbuf = 0;
-				}
-				free(text);
-			}
+	int lastbit = 0;
+	uint32_t duration = 0;
+	uint8_t rxbits[32];
+	uint32_t rxbitsDuration[ARRAY_SIZE(rxbits)];
+	uint16_t bitpos = 0;
+	int64_t start_at = 0;
+	while (1) {
+		if (!xQueueReceive(thiz->_rxq, &rx_data, pdMS_TO_TICKS(35))) {
+			thiz->onCarrierChange(0);
+			lastbit = 0;
+			duration = 0;
+			bitpos = 0;
+			continue;
 		}
 
 		if (rx_data.flags.is_last) {
-			ESP_LOGD(TAG, "RX: last");
 			ESP_ERROR_CHECK(rmt_receive(thiz->_rmrx, raw_symbols, sizeof(raw_symbols), &receive_config));
+			thiz->onCarrierChange(0);
+			lastbit = 0;
+			duration = 0;
+			bitpos = 0;
+			continue;
 		}
+
+		if (rx_data.num_symbols != ARRAY_SIZE(raw_symbols))
+			ESP_LOGV(TAG, "RX: %d %s", rx_data.num_symbols, rx_data.flags.is_last ? "last" : "");
+
+		uint32_t avgFreq = 0;
+		for (size_t i = 0; i < rx_data.num_symbols; ++i) {
+			rmt_symbol_word_t *sy = rx_data.received_symbols + i;
+			const uint32_t dur = sy->duration0 + sy->duration1;
+			const uint16_t f = RMT_RES / (dur + 1);
+			avgFreq += f;
+
+			const uint16_t *freq = s_freq[f > FSK_CENTRAL];
+			const int away[] = { abs(f - freq[0]), abs(f - freq[1]) };
+			const int bit = away[0] > away[1];
+
+
+			if (lastbit ^ bit) {
+				ESP_LOGV(TAG, "bit change %d -> %d (freq %d) time %d %d %d pos %d", lastbit, bit, f, duration, dur, BIT_TIME_MAX, bitpos);
+
+				rxbits[bitpos] = lastbit;
+				rxbitsDuration[bitpos] = duration;
+
+				lastbit = bit;
+				duration = 0;
+
+				if (!bitpos)
+					start_at = esp_timer_get_time();
+				bitpos += 1;
+				continue;
+			}
+
+			duration += dur;
+			const uint32_t delta = esp_timer_get_time() - start_at;
+			if (!bitpos || (delta < BIT_TIME_MAX))
+				continue;
+
+			ESP_LOGV(TAG, "RX: tout bits %d time %d", bitpos, duration);
+			while (bitpos < 10) { // insert trailing ones
+				rxbits[bitpos] = 1;
+				rxbitsDuration[bitpos++] = 1;
+			}
+#if 0
+			char text[ARRAY_SIZE(rxbits) + 16];
+			int occ = 0;
+			for (uint16_t b = 0; b < bitpos; ++b) {
+				occ += snprintf(text + occ, sizeof(text) - occ, "%d", rxbits[b]);
+				ESP_LOGD(TAG, "%d  %d", rxbits[b], rxbitsDuration[b]);
+			}
+			ESP_LOGD(TAG, "RX %d %s", bitpos, text);
+#endif
+
+			int val = 0;
+			int mask = 1;
+			for (uint16_t b = 1; b < bitpos; ++b) {
+				const int time_leftover = rxbitsDuration[b] * 10 / BIT_TIME_RMTICK;
+				int cb = rxbitsDuration[b] < BIT_TIME_RMTICK ? 1 : (rxbitsDuration[b] / BIT_TIME_RMTICK + ((time_leftover % 10) >= 2));
+				while (cb--) {
+					if (rxbits[b])
+						val |= mask;
+					mask <<= 1;
+				}
+			}
+			val = (val >> 1) & 0x7f;
+			ESP_LOGD(TAG, "RX: %X '%c'", val, val);
+			if (thiz->_onRx)
+				thiz->_onRx(*thiz, val);
+
+			bitpos = 0;
+
+		}
+
+		avgFreq /= rx_data.num_symbols;
+		thiz->onCarrierChange(avgFreq);
 	}
 }
-
-// 0000000 0000000 0000000 1111111 1111111 0000000 0000000 0111111 0000000 011111111111111111111111111111111
-// 0000000 0000000 0111111 0000000 0111111 0000000 0111111 0000000 0000000 01111111
 
 Modem::Modem(int gpio_rx, int gpio_tx, ReceiveCb onRx): _carrier(0), _onRx(onRx), _lock(nullptr), _rxed(nullptr) {
 
