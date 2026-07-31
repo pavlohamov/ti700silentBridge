@@ -449,15 +449,12 @@ private:
 };
 
 
-
-
 static bool IRAM_ATTR data_rx(rmt_channel_handle_t channel, const rmt_rx_done_event_data_t *edata, void *arg) {
     QueueHandle_t q = (QueueHandle_t)arg;
     BaseType_t high_task_wakeup = 0;
     xQueueSendFromISR(q, edata, &high_task_wakeup);
     return high_task_wakeup;
 }
-
 
 void Modem::onCarrierChange(uint32_t cur) {
 

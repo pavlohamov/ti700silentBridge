@@ -16,8 +16,10 @@ target_include_directories(${COMPONENT_LIB} PRIVATE
 	${BOARDS_ROOT}/${BOARD}/
 
 	${CMAKE_CURRENT_SOURCE_DIR}/inc
+	${IDF_PATH}/examples/bluetooth/blufi/main
 )
 
 target_sources(${COMPONENT_LIB} PRIVATE
 	${SRC}
+	${IDF_PATH}/examples/bluetooth/blufi/main/blufi_security.c
 )

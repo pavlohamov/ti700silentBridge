@@ -6,15 +6,21 @@ extern "C" {
 #endif
 
 
-#include "driver/i2c_master.h"
+#include <time.h>
 
 #define I2C_TOOL_TIMEOUT_VALUE_MS 50
 
-int register_i2c_cmd(i2c_master_bus_handle_t *pbus);
+int WiFi_init(void);
+int WiFi_connected(void);
 
-int usb_can_init(void);
+int bt_init(void);
+int bt_wifiScanResult(size_t count, void *arg);
+int bt_connected(void);
 
-int oled_lcd_init(i2c_master_bus_handle_t *i2c_bus);
+
+int SNTP_request(void);
+int SNTP_request_sync(uint32_t tout_s);
+time_t SNTP_last(void);
 
 
 #ifdef __cplusplus

@@ -29,6 +29,7 @@
 #include "driver/gpio.h"
 
 #include <string>
+#include <functional>
 
 #include "modem_pwm.hpp"
 #include "bq24296.hpp"
@@ -344,29 +345,42 @@ return 0;
 
 int LogUtil_init();
 
-static void onReception(V11::Modem& mod, int code) {
+#include "OpenAI.h"
+
+static void onReception(V11::Modem& mod, int code, QueueHandle_t q) {
 
 	ESP_LOGI(TAG, "rx 0x%02X '%c'", code, code);
 
-	mod.write(&code, 1);
-//
-//	static std::string str;
-//	if (code == '\n' || code == '\r') {
-//		if (!str.empty()) {
-//			str.append("\n\r");
-//			mod.write(str.c_str(), str.length());
-//			str.clear();
-//		}
-//		return;
-//	}
-//	if (isprint(code))
-//		str += char(code);
+	if (code == '\n' || code == '\r')
+		mod.write("\r\n", 2);
+	else
+		mod.write(&code, 1);
+
+	xQueueSend(q, &code, 0);
+}
+
+
+static void aitest() {
+
 }
 
 extern "C" void app_main(void) {
 
     gpio_init();
     LogUtil_init();
+    WiFi_init();
+    bt_init();
+
+    QueueHandle_t rxq = xQueueCreate(64, sizeof(char));
+	auto onChar = std::bind(onReception, std::placeholders::_1, std::placeholders::_2, rxq);
+	V11::Modem *mod = new V11::Modem(BOARD_CFG_GPIO_MODEM_RX, BOARD_CFG_GPIO_MODEM_TX, onChar);
+
+    while (!WiFi_connected()) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+    SNTP_request_sync(15);
+
+	esp_log_level_set("esp-x509-crt-bundle", ESP_LOG_VERBOSE);
 
 	static const  i2c_master_bus_config_t i2c_bus_config = {
 		.i2c_port = -1,
@@ -402,8 +416,86 @@ extern "C" void app_main(void) {
     bq->dump();
 
 
-	V11::Modem *mod = new V11::Modem(BOARD_CFG_GPIO_MODEM_RX, BOARD_CFG_GPIO_MODEM_TX, onReception);
-    pwm_test(mod);
+	mod->tone(1);
+
+
+    static char *openai_key =
+    OpenAI_t *openai = OpenAICreate(openai_key);
+    assert(openai);
+	OpenAI_ChatCompletion_t *chatCompletion = openai->chatCreate(openai);
+	assert(chatCompletion);
+	chatCompletion->setModel(chatCompletion, "gpt-5-nano");
+	chatCompletion->setSystem(chatCompletion, "You are a helpful assistant");
+	chatCompletion->setUser(chatCompletion, "OpenAI-ESP32-shapa");
+
+	vTaskDelay(pdMS_TO_TICKS(500));
+	int log = 30;
+	while (!mod->carrier() && --log) {
+		vTaskDelay(pdMS_TO_TICKS(100));
+	}
+	if (!mod->carrier())
+		ESP_LOGE(TAG, "No carrier");
+	else
+		ESP_LOGI(TAG, "Carrier %d Hz", mod->carrier());
+
+	std::string str;
+	static const char thinking[] = "->THINKING\r\n";
+	while (1) {
+		char code;
+		if (!xQueueReceive(rxq, &code, pdMS_TO_TICKS(35)))
+			continue;
+
+		if (code != '\n' && code != '\r') {
+			if (isprint(code))
+				str += code;
+			continue;
+		}
+		if (str.empty())
+			continue;
+
+		mod->write(thinking, 12);
+
+	    OpenAI_StringResponse_t *result = chatCompletion->multiModalMessage(chatCompletion, "text", str.c_str(), false);
+	    assert(result);
+	    if (result->getLen(result) == 1) {
+	        ESP_LOGI(TAG, "Received message. Tokens: %"PRIu32"", result->getUsage(result));
+	        const char *response = result->getData(result, 0);
+	        const uint32_t len = strlen(response);
+	        ESP_LOGI(TAG, "%d %s", len, response);
+	        for (int i = 0; i < len; ++i) {
+	        	if (response[i] == '\n' || response[i] == '\r')
+	        		mod->write("\r\n", 2);
+	        	else
+	        		mod->write(response + i, 1);
+	        }
+	    } else if (result->getLen(result) > 1) {
+	        ESP_LOGI(TAG, "Received %"PRIu32" messages. Tokens: %"PRIu32"", result->getLen(result), result->getUsage(result));
+	        for (int i = 0; i < result->getLen(result); ++i) {
+	            const char *response = result->getData(result, i);
+		        const uint32_t len = strlen(response);
+	            ESP_LOGI(TAG, "Message[%d]: '%s'", i, response);
+		        mod->write(response, len);
+	        }
+	    } else if (result->getError(result)) {
+	    	const char *response = result->getError(result);
+	    	const uint32_t len = strlen(response);
+	        ESP_LOGE(TAG, "Error! %s", response);
+	        mod->write(response, len);
+	    } else {
+	    	const char erri[] = "Unknown error!";
+	        ESP_LOGE(TAG, "%s", erri);
+	        mod->write(erri, sizeof(erri - 1));
+	    }
+        mod->write("\r\n", 2);
+
+	    result->deleteResponse(result);
+		str.clear();
+	}
+
+	openai->chatDelete(chatCompletion);
+	OpenAIDelete(openai);
+
+//    pwm_test(mod);
 //    mod->tone(0);
 //    delete mod;
 //    i2s_test();
